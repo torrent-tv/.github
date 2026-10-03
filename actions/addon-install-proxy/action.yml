@@ -1,0 +1,61 @@
+name: Install a proxy release into the add-on
+description: >-
+  After a proxy release, points the Home Assistant add-on at it: sets PROXY_VERSION in
+  the add-on's Dockerfile, adds the release to the add-on changelog under
+  "## Unreleased", and pushes `fix(proxy)` or `feat(proxy)` to the add-on's main. That
+  push starts the add-on's own workflow, which builds the image and releases the add-on.
+inputs:
+  addon-path:
+    description: Checkout of torrent-tv/ha-addon, made with a key that may push to it.
+    required: true
+  proxy-version:
+    required: true
+  bump:
+    description: The proxy's release step (patch or minor); the add-on takes the same step.
+    required: true
+  notes-file:
+    description: The proxy release notes.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Wait until npm serves the release
+      shell: bash
+      env:
+        VERSION: ${{ inputs.proxy-version }}
+      run: |
+        for attempt in $(seq 1 20); do
+          if [ "$(npm view "@torrent-tv/proxy@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then exit 0; fi
+          echo "npm does not serve @torrent-tv/proxy@$VERSION yet (attempt $attempt)"
+          sleep 15
+        done
+        exit 1
+
+    - name: Point the add-on at the release and push
+      shell: bash
+      working-directory: ${{ inputs.addon-path }}
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../scripts
+        VERSION: ${{ inputs.proxy-version }}
+        BUMP: ${{ inputs.bump }}
+        NOTES: ${{ inputs.notes-file }}
+      run: |
+        sed -i -E "s/^ARG PROXY_VERSION=.*/ARG PROXY_VERSION=$VERSION/" torrent_tv_proxy/Dockerfile
+        grep -q "^ARG PROXY_VERSION=$VERSION\$" torrent_tv_proxy/Dockerfile
+        if [ "$BUMP" = minor ]; then type=feat; kind=New; else type=fix; kind=Fix; fi
+        entry="$RUNNER_TEMP/addon-entry.md"
+        {
+          echo "- **$kind**: Install proxy $VERSION, which carries:"
+          sed 's/^/  /' "$NOTES"
+        } > "$entry"
+        node "$SCRIPTS/add-changelog-entry.mjs" --changelog torrent_tv_proxy/CHANGELOG.md --entry-file "$entry"
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add torrent_tv_proxy/Dockerfile torrent_tv_proxy/CHANGELOG.md
+        git commit -m "$type(proxy): install proxy $VERSION"
+        for attempt in 1 2 3; do
+          if git push origin HEAD:refs/heads/main; then exit 0; fi
+          echo "the add-on's main moved (attempt $attempt); rebasing onto it"
+          git pull --rebase origin main
+        done
+        exit 1
