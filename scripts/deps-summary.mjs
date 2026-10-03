@@ -19,10 +19,16 @@ const vulnerabilities = (file) => {
   }
 };
 
+// Direct dependencies are the ones package.json names; a hoisted transitive
+// package also sits at the top of node_modules, so its path says nothing.
+const manifest = read("package.json");
+const declared = new Set(Object.keys({ ...manifest.dependencies, ...manifest.devDependencies, ...manifest.optionalDependencies }));
 const changed = [];
 for (const [path, entry] of Object.entries(after)) {
   if (!path || before[path]?.version === entry.version) continue;
-  changed.push({ name: path.replace(/^.*node_modules\//, ""), from: before[path]?.version ?? "new", to: entry.version, direct: path.split("node_modules/").length === 2 });
+  const name = path.replace(/^.*node_modules\//, "");
+  const direct = declared.has(name) && path === `node_modules/${name}`;
+  changed.push({ name, from: before[path]?.version ?? "new", to: entry.version, direct });
 }
 const removed = Object.keys(before).filter((path) => path && !(path in after)).length;
 const fixed = Math.max(0, vulnerabilities(opts["audit-before"]) - vulnerabilities(opts["audit-after"]));

@@ -27,5 +27,9 @@ The release rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
 | `DROPLET_HOST` | variable, environment `production` | `infra` | The droplet's address |
 
 The server image is published to GHCR with the workflow's own `GITHUB_TOKEN`.
+An advisory that npm audit reports but that does not apply is listed in the
+repository's `audit-exceptions.json` with the reason, after the code path has
+been read; every other advisory at moderate or above fails the daily job.
+
 The daily dependency update pushes with `GITHUB_TOKEN` and then starts the main
 workflow with `workflow_dispatch`, so it needs no stored credential.

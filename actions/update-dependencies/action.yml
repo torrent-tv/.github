@@ -5,8 +5,8 @@ description: >-
   and tests, and pushes the result to main. A push made with GITHUB_TOKEN starts no
   workflow, so the repository's main workflow is then started by workflow_dispatch;
   it releases the update when it changes what is shipped.
-  The job fails afterwards when known vulnerabilities remain that need a breaking
-  upgrade, so they are reported every day until someone resolves them.
+  The job fails afterwards when a known vulnerability remains that is neither fixed
+  nor reviewed in audit-exceptions.json, so it is reported every day.
 inputs:
   github-token:
     description: Token allowed to push to main and to start workflows (contents and actions write).
@@ -89,10 +89,10 @@ runs:
         done
         exit 1
 
-    - name: No known vulnerabilities remain
+    - name: No unreviewed vulnerabilities remain
       shell: bash
       run: |
-        if ! npm audit --audit-level=moderate; then
-          echo "::error::Known vulnerabilities remain that npm audit fix cannot resolve without a breaking upgrade; see the audit above"
-          exit 1
-        fi
+        # An advisory that does not apply is listed in audit-exceptions.json with
+        # the reason; every other one at moderate or above fails the job, so it is
+        # reported every day until it is resolved or reviewed.
+        { npm audit --json || true; } | node "${{ github.action_path }}/../../scripts/check-audit.mjs"
