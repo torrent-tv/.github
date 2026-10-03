@@ -1,0 +1,86 @@
+name: Update dependencies
+description: >-
+  Daily dependency maintenance for an npm repository: updates within the ranges in
+  package.json, applies non-breaking security fixes, runs the repository's checks
+  and tests, and pushes the result to main. A push made here starts the repository's
+  own main workflow, which releases the update when it changes what is shipped.
+  The job fails afterwards when known vulnerabilities remain that need a breaking
+  upgrade, so they are reported every day until someone resolves them.
+inputs:
+  changelog:
+    description: Changelog that receives the entry for a released update.
+    default: CHANGELOG.md
+  ships-lockfile:
+    description: "'true' when the lock file reaches users (a container image built with npm ci)."
+    default: "false"
+  extra-check:
+    default: ""
+  test-command:
+    default: npm test
+runs:
+  using: composite
+  steps:
+    - name: Audit, update and fix
+      id: update
+      shell: bash
+      run: |
+        npm ci
+        cp package-lock.json "$RUNNER_TEMP/lock-before.json"
+        npm audit --json > "$RUNNER_TEMP/audit-before.json" || true
+        npm update
+        npm audit fix || true
+        npm audit --json > "$RUNNER_TEMP/audit-after.json" || true
+        if git diff --quiet -- package.json package-lock.json; then
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          echo "Dependencies are already current" >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          npm ci
+        fi
+
+    - name: Repository checks
+      if: steps.update.outputs.changed == 'true' && inputs.extra-check != ''
+      shell: bash
+      run: ${{ inputs.extra-check }}
+
+    - name: Lint and tests
+      if: steps.update.outputs.changed == 'true'
+      shell: bash
+      run: ${{ inputs.test-command }}
+
+    - name: Commit and push
+      if: steps.update.outputs.changed == 'true'
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../scripts
+        CHANGELOG: ${{ inputs.changelog }}
+        SHIPS: ${{ inputs.ships-lockfile }}
+      run: |
+        out="$RUNNER_TEMP/deps"
+        mkdir -p "$out"
+        node "$SCRIPTS/deps-summary.mjs" --before-lock "$RUNNER_TEMP/lock-before.json" \
+          --audit-before "$RUNNER_TEMP/audit-before.json" --audit-after "$RUNNER_TEMP/audit-after.json" \
+          --ships-lockfile "$SHIPS" --out "$out"
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        if [ "$(cat "$out/type")" = fix ]; then
+          node "$SCRIPTS/add-changelog-entry.mjs" --changelog "$CHANGELOG" --entry-file "$out/entry"
+          git add "$CHANGELOG"
+        fi
+        git add package.json package-lock.json
+        git commit -F "$out/message"
+        cat "$out/message" >> "$GITHUB_STEP_SUMMARY"
+        for attempt in 1 2 3; do
+          if git push origin HEAD:refs/heads/main; then exit 0; fi
+          echo "main moved (attempt $attempt); rebasing the update onto it"
+          git pull --rebase origin main
+        done
+        exit 1
+
+    - name: No known vulnerabilities remain
+      shell: bash
+      run: |
+        if ! npm audit --audit-level=moderate; then
+          echo "::error::Known vulnerabilities remain that npm audit fix cannot resolve without a breaking upgrade; see the audit above"
+          exit 1
+        fi

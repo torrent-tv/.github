@@ -1,0 +1,61 @@
+name: Prepare release
+description: >-
+  Decides from the Conventional Commits since the last v* tag whether to release,
+  and if so writes the version into the version files and the changelog, commits
+  it as `chore(release): <version>` and tags it locally. Nothing is pushed: the
+  caller publishes first and then runs release-finish.
+inputs:
+  version-files:
+    description: Comma-separated files carrying the version; the first one is read.
+    required: true
+  changelog:
+    description: Changelog whose "## Unreleased" section becomes the release.
+    required: true
+  bump:
+    description: auto (from the commits), patch or minor.
+    default: auto
+outputs:
+  released:
+    description: "'true' when a release was prepared."
+    value: ${{ steps.plan.outputs.bump != 'none' }}
+  version:
+    value: ${{ steps.plan.outputs.version }}
+  tag:
+    value: ${{ steps.plan.outputs.tag }}
+  notes-file:
+    description: Release notes taken from the changelog.
+    value: ${{ runner.temp }}/release-notes.md
+runs:
+  using: composite
+  steps:
+    - name: Plan the release
+      id: plan
+      shell: bash
+      env:
+        FILES: ${{ inputs.version-files }}
+        BUMP: ${{ inputs.bump }}
+      run: node "${{ github.action_path }}/../../scripts/release-plan.mjs" --version-file "${FILES%%,*}" --bump "$BUMP"
+
+    - name: Write and commit the release
+      if: steps.plan.outputs.bump != 'none'
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../scripts
+        VERSION: ${{ steps.plan.outputs.version }}
+        TAG: ${{ steps.plan.outputs.tag }}
+        FILES: ${{ inputs.version-files }}
+        CHANGELOG: ${{ inputs.changelog }}
+      run: |
+        node "$SCRIPTS/apply-release.mjs" --version "$VERSION" --changelog "$CHANGELOG" --version-files "$FILES"
+        node "$SCRIPTS/changelog-section.mjs" --changelog "$CHANGELOG" --heading "$VERSION" > "$RUNNER_TEMP/release-notes.md"
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        IFS=, read -ra files <<< "$FILES"
+        git add "$CHANGELOG" "${files[@]}"
+        git commit -m "chore(release): $VERSION"
+        git tag "$TAG"
+        {
+          echo "### Release $VERSION"
+          echo
+          cat "$RUNNER_TEMP/release-notes.md"
+        } >> "$GITHUB_STEP_SUMMARY"

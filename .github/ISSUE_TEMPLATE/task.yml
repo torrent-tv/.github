@@ -1,0 +1,23 @@
+name: Task
+description: Work to be done — a feature, a fix, research or maintenance.
+projects: ["torrent-tv/1"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What
+      description: What is to be done, stated so it can be checked when done.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: The expected benefit, or the evidence that requires the work.
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Measurements, logs, research notes, links.

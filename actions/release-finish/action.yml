@@ -1,0 +1,36 @@
+name: Finish release
+description: >-
+  Pushes the release tag and the release commit, then creates the GitHub release.
+  Runs after publishing, so a failed publication leaves nothing behind in git.
+  When main moved while the job ran, the release commit is merged into it instead
+  of being rebased, so the tag stays on the commit that was published.
+inputs:
+  tag:
+    required: true
+  notes-file:
+    required: true
+  github-token:
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Push the tag and the release commit
+      shell: bash
+      env:
+        TAG: ${{ inputs.tag }}
+      run: |
+        git push origin "refs/tags/$TAG"
+        for attempt in 1 2 3; do
+          if git push origin HEAD:refs/heads/main; then exit 0; fi
+          echo "main moved during the release (attempt $attempt); merging it"
+          git pull --no-rebase --no-edit origin main
+        done
+        exit 1
+
+    - name: Create the GitHub release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        TAG: ${{ inputs.tag }}
+        NOTES: ${{ inputs.notes-file }}
+      run: gh release create "$TAG" --title "$TAG" --notes-file "$NOTES" --verify-tag

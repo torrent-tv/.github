@@ -1,0 +1,80 @@
+name: Checks
+description: >-
+  The checks every torrent-tv repository runs before anything is published:
+  Conventional Commits headers, line endings, workflow syntax, the pending
+  changelog entry, and the repository's own lint and tests.
+inputs:
+  node:
+    description: Install dependencies with npm and run the test command.
+    default: "true"
+  changelog:
+    description: Changelog path; empty when the repository keeps none.
+    default: ""
+  version-file:
+    description: File stating the released version (package.json or config.yaml).
+    default: ""
+  extra-check:
+    description: Shell command run after the install and before the tests.
+    default: ""
+  test-command:
+    description: Command that runs the repository's lint and tests.
+    default: npm test
+runs:
+  using: composite
+  steps:
+    - name: Commit messages follow Conventional Commits
+      shell: bash
+      env:
+        EVENT: ${{ github.event_name }}
+        BEFORE: ${{ github.event.before }}
+        BASE: ${{ github.event.pull_request.base.sha }}
+        HEAD: ${{ github.event.pull_request.head.sha }}
+        SHA: ${{ github.sha }}
+        SCRIPTS: ${{ github.action_path }}/../../scripts
+      run: |
+        case "$EVENT" in
+          pull_request) range="$BASE..$HEAD" ;;
+          push)
+            if [[ "$BEFORE" =~ ^0+$ ]] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              if git rev-parse -q --verify "$SHA~1" >/dev/null; then range="$SHA~1..$SHA"; else range="$SHA"; fi
+            else
+              range="$BEFORE..$SHA"
+            fi ;;
+          *) echo "No pushed commits to check for a $EVENT event"; exit 0 ;;
+        esac
+        node "$SCRIPTS/check-commits.mjs" --range "$range"
+
+    - name: Shell scripts and Dockerfiles use LF
+      shell: bash
+      run: node "${{ github.action_path }}/../../scripts/check-line-endings.mjs"
+
+    - name: Workflows are valid
+      shell: bash
+      run: |
+        if compgen -G ".github/workflows/*.y*ml" >/dev/null; then
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
+          rm -f actionlint
+        fi
+
+    - name: Pending changes have a changelog entry
+      if: inputs.changelog != ''
+      shell: bash
+      run: >-
+        node "${{ github.action_path }}/../../scripts/check-changelog.mjs"
+        --changelog "${{ inputs.changelog }}" --version-file "${{ inputs.version-file }}"
+
+    - name: Install dependencies
+      if: inputs.node == 'true'
+      shell: bash
+      run: npm ci
+
+    - name: Repository checks
+      if: inputs.extra-check != ''
+      shell: bash
+      run: ${{ inputs.extra-check }}
+
+    - name: Lint and tests
+      if: inputs.node == 'true'
+      shell: bash
+      run: ${{ inputs.test-command }}
