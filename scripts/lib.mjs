@@ -63,6 +63,16 @@ export function bumpOf(messages) {
   return bump;
 }
 
+/** Negative, zero or positive as a is below, equal to or above b (x.y.z). */
+export function compareVersions(a, b) {
+  const left = String(a).split(".").map(Number);
+  const right = String(b).split(".").map(Number);
+  for (let i = 0; i < 3; i += 1) {
+    if (left[i] !== right[i]) return (left[i] || 0) - (right[i] || 0);
+  }
+  return 0;
+}
+
 export function nextVersion(version, bump) {
   const [major, minor, patch] = version.split(".").map(Number);
   if (bump === "minor") return `${major}.${minor + 1}.0`;

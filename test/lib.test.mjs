@@ -71,3 +71,11 @@ test("a changelog survives a read and a write unchanged", () => {
   writeChangelog(file, log);
   assert.equal(readFileSync(file, "utf8"), text);
 });
+
+test("versions compare by number, not by text", async () => {
+  const { compareVersions } = await import("../scripts/lib.mjs");
+  assert.ok(compareVersions("2.89.10", "2.89.9") > 0);
+  assert.ok(compareVersions("2.90.0", "2.89.99") > 0);
+  assert.equal(compareVersions("0.36.14", "0.36.14"), 0);
+  assert.ok(compareVersions("0.9.5", "0.36.0") < 0);
+});

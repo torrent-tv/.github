@@ -1,12 +1,16 @@
 name: Install a proxy release into the add-on
 description: >-
-  After a proxy release, points the Home Assistant add-on at it: sets PROXY_VERSION in
-  the add-on's Dockerfile, adds the release to the add-on changelog under
-  "## Unreleased", and pushes `fix(proxy)` or `feat(proxy)` to the add-on's main. That
-  push starts the add-on's own workflow, which builds the image and releases the add-on.
+  After a proxy release, points the Home Assistant add-on at it and verifies the
+  result. Sets PROXY_VERSION in the add-on's Dockerfile and adds the release to the
+  add-on changelog under "## Unreleased", pushing `fix(proxy)` or `feat(proxy)` to
+  the add-on's main with a token of the torrent-tv-release app that is limited to
+  ha-addon; that push starts the add-on's workflow, which builds the image and
+  releases the add-on. A version is never lowered, and a version already written is
+  not written again; in every case the step waits for the add-on release that carries
+  this proxy version, so a re-run verifies the end result instead of repeating it.
 inputs:
-  addon-path:
-    description: Checkout of torrent-tv/ha-addon, made with a key that may push to it.
+  github-token:
+    description: App token limited to torrent-tv/ha-addon (contents write, actions read).
     required: true
   proxy-version:
     required: true
@@ -16,6 +20,12 @@ inputs:
   notes-file:
     description: The proxy release notes.
     required: true
+  task:
+    description: The meta issue the commit refers to, as `#ttv-<number>`.
+    required: true
+  timeout-minutes:
+    description: How long to wait for the add-on release.
+    default: "40"
 runs:
   using: composite
   steps:
@@ -31,31 +41,81 @@ runs:
         done
         exit 1
 
-    - name: Point the add-on at the release and push
+    - name: Point the add-on at the release
       shell: bash
-      working-directory: ${{ inputs.addon-path }}
       env:
         SCRIPTS: ${{ github.action_path }}/../../scripts
         VERSION: ${{ inputs.proxy-version }}
         BUMP: ${{ inputs.bump }}
         NOTES: ${{ inputs.notes-file }}
+        TASK: ${{ inputs.task }}
+        TOKEN: ${{ inputs.github-token }}
       run: |
-        sed -i -E "s/^ARG PROXY_VERSION=.*/ARG PROXY_VERSION=$VERSION/" torrent_tv_proxy/Dockerfile
-        grep -q "^ARG PROXY_VERSION=$VERSION\$" torrent_tv_proxy/Dockerfile
+        dir="$RUNNER_TEMP/ha-addon"
+        rm -rf "$dir"
+        git clone -q "https://x-access-token:$TOKEN@github.com/torrent-tv/ha-addon.git" "$dir"
+        cd "$dir"
+        git config user.name "torrent-tv-release[bot]"
+        git config user.email "torrent-tv-release[bot]@users.noreply.github.com"
         if [ "$BUMP" = minor ]; then type=feat; kind=New; else type=fix; kind=Fix; fi
-        entry="$RUNNER_TEMP/addon-entry.md"
-        {
-          echo "- **$kind**: Install proxy $VERSION, which carries:"
-          sed 's/^/  /' "$NOTES"
-        } > "$entry"
-        node "$SCRIPTS/add-changelog-entry.mjs" --changelog torrent_tv_proxy/CHANGELOG.md --entry-file "$entry"
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git add torrent_tv_proxy/Dockerfile torrent_tv_proxy/CHANGELOG.md
-        git commit -m "$type(proxy): install proxy $VERSION"
         for attempt in 1 2 3; do
-          if git push origin HEAD:refs/heads/main; then exit 0; fi
-          echo "the add-on's main moved (attempt $attempt); rebasing onto it"
-          git pull --rebase origin main
+          git fetch -q origin main
+          git reset -q --hard origin/main
+          current=$(sed -n 's/^ARG PROXY_VERSION=//p' torrent_tv_proxy/Dockerfile)
+          if node "$SCRIPTS/version-at-least.mjs" "$current" "$VERSION"; then
+            echo "the add-on already installs proxy $current (asked: $VERSION); nothing to write"
+            exit 0
+          fi
+          sed -i -E "s/^ARG PROXY_VERSION=.*/ARG PROXY_VERSION=$VERSION/" torrent_tv_proxy/Dockerfile
+          grep -q "^ARG PROXY_VERSION=$VERSION\$" torrent_tv_proxy/Dockerfile
+          {
+            echo "- **$kind**: Install proxy $VERSION, which carries:"
+            sed 's/^/  /' "$NOTES"
+          } > "$RUNNER_TEMP/addon-entry.md"
+          node "$SCRIPTS/add-changelog-entry.mjs" --changelog torrent_tv_proxy/CHANGELOG.md --entry-file "$RUNNER_TEMP/addon-entry.md"
+          git add torrent_tv_proxy/Dockerfile torrent_tv_proxy/CHANGELOG.md
+          git commit -q -m "$type(proxy): install proxy $VERSION $TASK"
+          if git push -q origin HEAD:refs/heads/main; then
+            echo "pushed $(git rev-parse --short HEAD): install proxy $VERSION"
+            exit 0
+          fi
+          echo "the add-on's main moved (attempt $attempt); comparing again"
         done
+        exit 1
+
+    - name: Wait for the add-on release that installs this proxy
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../scripts
+        VERSION: ${{ inputs.proxy-version }}
+        GH_TOKEN: ${{ inputs.github-token }}
+        MINUTES: ${{ inputs.timeout-minutes }}
+      run: |
+        dir="$RUNNER_TEMP/ha-addon"
+        deadline=$(( $(date +%s) + MINUTES * 60 ))
+        while [ "$(date +%s)" -lt "$deadline" ]; do
+          git -C "$dir" fetch -q --tags origin main
+          # The newest add-on release tag on main, and the proxy it installs.
+          tag=$(git -C "$dir" describe --tags --abbrev=0 --match 'v[0-9]*' origin/main 2>/dev/null || true)
+          if [ -n "$tag" ]; then
+            installed=$(git -C "$dir" show "$tag:torrent_tv_proxy/Dockerfile" | sed -n 's/^ARG PROXY_VERSION=//p')
+            if node "$SCRIPTS/version-at-least.mjs" "$installed" "$VERSION"; then
+              echo "add-on $tag installs proxy $installed"
+              echo "### Add-on $tag installs proxy $installed" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
+          # A failed add-on run on the commit that installs this version is final.
+          sha=$(git -C "$dir" log -1 --format=%H -S"ARG PROXY_VERSION=$VERSION" origin/main -- torrent_tv_proxy/Dockerfile)
+          if [ -n "$sha" ]; then
+            conclusion=$(gh api "repos/torrent-tv/ha-addon/actions/runs?head_sha=$sha&event=push" --jq '[.workflow_runs[] | select(.name == "Main")][0].conclusion // ""')
+            if [ "$conclusion" = failure ] || [ "$conclusion" = cancelled ]; then
+              echo "::error::the add-on workflow on $sha ended $conclusion; see torrent-tv/ha-addon Actions"
+              exit 1
+            fi
+          fi
+          echo "waiting for an add-on release that installs proxy $VERSION (newest: ${tag:-none})"
+          sleep 20
+        done
+        echo "::error::no add-on release installs proxy $VERSION after $MINUTES minutes"
         exit 1

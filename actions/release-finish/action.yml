@@ -1,6 +1,8 @@
 name: Finish release
 description: >-
   Pushes the release tag and the release commit, then creates the GitHub release.
+  Both steps are skipped when already done, so a re-run of a published release
+  changes nothing.
   Runs after publishing, so a failed publication leaves nothing behind in git.
   When main moved while the job ran, the release commit is merged into it instead
   of being rebased, so the tag stays on the commit that was published.
@@ -19,6 +21,10 @@ runs:
       env:
         TAG: ${{ inputs.tag }}
       run: |
+        if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+          echo "$TAG is already on the remote; nothing to push"
+          exit 0
+        fi
         git push origin "refs/tags/$TAG"
         for attempt in 1 2 3; do
           if git push origin HEAD:refs/heads/main; then exit 0; fi
@@ -33,4 +39,9 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
         TAG: ${{ inputs.tag }}
         NOTES: ${{ inputs.notes-file }}
-      run: gh release create "$TAG" --title "$TAG" --notes-file "$NOTES" --verify-tag
+      run: |
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          echo "the GitHub release $TAG exists"
+        else
+          gh release create "$TAG" --title "$TAG" --notes-file "$NOTES" --verify-tag
+        fi

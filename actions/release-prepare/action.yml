@@ -21,6 +21,12 @@ outputs:
   bump:
     description: none, patch or minor.
     value: ${{ steps.plan.outputs.bump }}
+  already:
+    description: >-
+      'true' when this version's tag already exists on the remote: a re-run of a release
+      that was published. Publication and pushes are then skipped, and the caller goes
+      on to verify the end result.
+    value: ${{ steps.already.outputs.already }}
   version:
     value: ${{ steps.plan.outputs.version }}
   tag:
@@ -39,8 +45,28 @@ runs:
         BUMP: ${{ inputs.bump }}
       run: node "${{ github.action_path }}/../../scripts/release-plan.mjs" --version-file "${FILES%%,*}" --bump "$BUMP"
 
-    - name: Write and commit the release
+    - name: Was this version already released?
+      id: already
       if: steps.plan.outputs.bump != 'none'
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../scripts
+        TAG: ${{ steps.plan.outputs.tag }}
+        VERSION: ${{ steps.plan.outputs.version }}
+        CHANGELOG: ${{ inputs.changelog }}
+      run: |
+        if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+          echo "already=true" >> "$GITHUB_OUTPUT"
+          git fetch -q origin "refs/tags/$TAG:refs/tags/$TAG"
+          git show "$TAG:$CHANGELOG" > "$RUNNER_TEMP/released-changelog.md"
+          node "$SCRIPTS/changelog-section.mjs" --changelog "$RUNNER_TEMP/released-changelog.md" --heading "$VERSION" > "$RUNNER_TEMP/release-notes.md"
+          echo "::notice::$TAG is already released; publication is skipped and the result is verified"
+        else
+          echo "already=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Write and commit the release
+      if: steps.plan.outputs.bump != 'none' && steps.already.outputs.already != 'true'
       shell: bash
       env:
         SCRIPTS: ${{ github.action_path }}/../../scripts
