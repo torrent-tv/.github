@@ -81,7 +81,48 @@ fails a push that makes a release without such an entry, or that adds a version
 heading by hand.
 
 A release can also be started from the Actions tab (`workflow_dispatch`) with an
-explicit `patch` or `minor` step.
+explicit `patch` or `minor` step. It still needs an entry under `## Unreleased`.
+
+Every release job runs one at a time (a queue, never cancelled), and publication
+happens before anything is pushed. A failed release job can be re-run: once the
+`v<version>` tag exists on GitHub, publication is skipped and only the steps not
+yet done run.
+
+## How a release reaches its users
+
+**Proxy → add-on → Home Assistant.**
+
+1. `proxy` publishes `@torrent-tv/proxy` to npm through npm trusted publishing:
+   npmjs.com accepts the workflow's OIDC token for `torrent-tv/proxy`,
+   `main.yml`, environment `production`. No npm token is stored anywhere.
+2. npm serves a new version only after it has processed it (6.5 minutes for
+   2.89.8). The release waits for that.
+3. It then pushes `fix(proxy)`/`feat(proxy): install proxy <version>` to
+   `ha-addon` with the `torrent-tv-release` app. That push starts the add-on's
+   workflow, which checks that npm serves the version, builds the image and
+   releases the add-on.
+4. The proxy release ends when the add-on release carrying that proxy exists.
+5. The add-on is updated on each Home Assistant host by its owner: `ha store
+   reload`, then `ha apps update b34a1737_torrent_tv_proxy`.
+
+**Server → infra → droplet.**
+
+1. `server` builds and pushes `ghcr.io/torrent-tv/server:<version>`.
+2. It writes `server:<version>@<digest>` into `infra`'s `docker-compose.yml` with
+   the `torrent-tv-release` app. A version is never lowered.
+3. That push starts `infra`'s workflow. Its checks run, then its serial deploy job
+   moves the `production` branch to the commit and sends a signed webhook to
+   doco-cd on the droplet. doco-cd pulls the image, recreates the server and
+   removes the server's previous image.
+4. The deploy job checks the site and the page from outside. The server release
+   ends when `https://webauth.courses/env.js` reports the new version.
+
+Measured on 2026-10-04 for server 0.36.15: image built in 13 s, written into
+`infra` 29 s after the job started, applied by doco-cd in 3.5 minutes (most of
+it pulling the image on the droplet), site checks passed in 6 s.
+
+CI never logs in to the droplet. doco-cd also polls `production` every five
+minutes, so a lost webhook delays a deployment instead of losing it.
 
 ## Environments
 
