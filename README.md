@@ -20,11 +20,12 @@ The release rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 | Name | Kind | Where | Used for |
 |---|---|---|---|
-| `DEPENDENCIES_DEPLOY_KEY` | secret | `server`, `proxy` | Pushing the daily dependency update so that the push starts the main workflow (a push made with `GITHUB_TOKEN` starts nothing) |
-| `ADDON_DEPLOY_KEY` | secret, environment `production` | `proxy` | Pushing the proxy version into `ha-addon` after the proxy is published |
+| `ADDON_DEPLOY_KEY` | secret, environment `production` | `proxy` | Pushing the proxy version into `ha-addon` after the proxy is published; the matching public key is a write deploy key of `ha-addon`. A push with a deploy key starts the add-on's workflow, which a push with `GITHUB_TOKEN` would not |
 | `NPM_TOKEN` | secret, environment `production`, optional | `proxy` | Only until npm trusted publishing is enabled for `@torrent-tv/proxy`; afterwards publication uses OIDC and the secret is deleted |
 | `DROPLET_SSH_KEY` | secret, environment `production` | `infra` | Deploying the compose stack; the key is restricted on the droplet to one forced command |
 | `DROPLET_KNOWN_HOSTS` | secret, environment `production` | `infra` | The droplet's host key |
 | `DROPLET_HOST` | variable, environment `production` | `infra` | The droplet's address |
 
 The server image is published to GHCR with the workflow's own `GITHUB_TOKEN`.
+The daily dependency update pushes with `GITHUB_TOKEN` and then starts the main
+workflow with `workflow_dispatch`, so it needs no stored credential.

@@ -2,11 +2,18 @@ name: Update dependencies
 description: >-
   Daily dependency maintenance for an npm repository: updates within the ranges in
   package.json, applies non-breaking security fixes, runs the repository's checks
-  and tests, and pushes the result to main. A push made here starts the repository's
-  own main workflow, which releases the update when it changes what is shipped.
+  and tests, and pushes the result to main. A push made with GITHUB_TOKEN starts no
+  workflow, so the repository's main workflow is then started by workflow_dispatch;
+  it releases the update when it changes what is shipped.
   The job fails afterwards when known vulnerabilities remain that need a breaking
   upgrade, so they are reported every day until someone resolves them.
 inputs:
+  github-token:
+    description: Token allowed to push to main and to start workflows (contents and actions write).
+    required: true
+  main-workflow:
+    description: The workflow file that checks and releases main.
+    default: main.yml
   changelog:
     description: Changelog that receives the entry for a released update.
     default: CHANGELOG.md
@@ -55,6 +62,8 @@ runs:
         SCRIPTS: ${{ github.action_path }}/../../scripts
         CHANGELOG: ${{ inputs.changelog }}
         SHIPS: ${{ inputs.ships-lockfile }}
+        WORKFLOW: ${{ inputs.main-workflow }}
+        GH_TOKEN: ${{ inputs.github-token }}
       run: |
         out="$RUNNER_TEMP/deps"
         mkdir -p "$out"
@@ -71,7 +80,10 @@ runs:
         git commit -F "$out/message"
         cat "$out/message" >> "$GITHUB_STEP_SUMMARY"
         for attempt in 1 2 3; do
-          if git push origin HEAD:refs/heads/main; then exit 0; fi
+          if git push origin HEAD:refs/heads/main; then
+            gh workflow run "$WORKFLOW" --ref main
+            exit 0
+          fi
           echo "main moved (attempt $attempt); rebasing the update onto it"
           git pull --rebase origin main
         done
