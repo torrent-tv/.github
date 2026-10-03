@@ -42,7 +42,13 @@ gh secret set DROPLET_KNOWN_HOSTS -R "$ORG/infra" --env production < "$work/know
 gh variable set DROPLET_HOST -R "$ORG/infra" --env production --body "$host"
 
 echo "== 4. npm trusted publishing"
+# A token that bypasses the second factor (the one in ~/.npmrc) may not change
+# trust, so this step signs in for itself, in the browser, into a throwaway
+# config; ~/.npmrc is not touched.
+export NPM_CONFIG_USERCONFIG="$work/npmrc"
+npx -y npm@latest login --auth-type=web
 npx -y npm@latest trust github @torrent-tv/proxy --file main.yml --repo "$ORG/proxy" --env production --allow-publish --yes
+unset NPM_CONFIG_USERCONFIG
 
 echo "== 5. organization project"
 number=$(gh project list --owner "$ORG" --format json --jq '.projects[] | select(.title == "Torrent TV") | .number')
