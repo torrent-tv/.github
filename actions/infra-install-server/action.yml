@@ -1,0 +1,97 @@
+name: Install a server release on the droplet
+description: >-
+  After a server release, writes the published image (version and digest) into
+  torrent-tv/infra's docker-compose.yml and verifies the result. The push is made
+  with a token of the torrent-tv-release app limited to infra; it starts infra's
+  workflow, which checks the commit and has doco-cd apply it. A version is never
+  lowered, and a version already written is not written again; in every case the
+  step waits until the live site reports this version or a later one, so a re-run
+  verifies the end result instead of repeating it.
+inputs:
+  github-token:
+    description: App token limited to torrent-tv/infra (contents write, actions read).
+    required: true
+  version:
+    required: true
+  digest:
+    description: The image digest (sha256:…) of ghcr.io/torrent-tv/server:<version>.
+    required: true
+  task:
+    description: The meta issue the commit refers to, as `#ttv-<number>`.
+    required: true
+  site:
+    default: https://webauth.courses
+  timeout-minutes:
+    default: "20"
+runs:
+  using: composite
+  steps:
+    - name: Write the image into infra
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../scripts
+        VERSION: ${{ inputs.version }}
+        DIGEST: ${{ inputs.digest }}
+        TASK: ${{ inputs.task }}
+        TOKEN: ${{ inputs.github-token }}
+      run: |
+        [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::'$DIGEST' is not an image digest"; exit 1; }
+        dir="$RUNNER_TEMP/infra"
+        rm -rf "$dir"
+        git clone -q "https://x-access-token:$TOKEN@github.com/torrent-tv/infra.git" "$dir"
+        cd "$dir"
+        git config user.name "torrent-tv-release[bot]"
+        git config user.email "torrent-tv-release[bot]@users.noreply.github.com"
+        for attempt in 1 2 3; do
+          git fetch -q origin main
+          git reset -q --hard origin/main
+          current=$(sed -nE 's#^\s+image:\s+ghcr\.io/torrent-tv/server:([0-9.]+)@sha256:[0-9a-f]+\s*$#\1#p' docker-compose.yml)
+          if [ -z "$current" ]; then echo "::error::infra's docker-compose.yml names no pinned server image"; exit 1; fi
+          if node "$SCRIPTS/version-at-least.mjs" "$current" "$VERSION"; then
+            echo "infra already runs server $current (asked: $VERSION); nothing to write"
+            exit 0
+          fi
+          sed -i -E "s#(^\s+image:\s+ghcr\.io/torrent-tv/server:)[0-9.]+@sha256:[0-9a-f]+#\1$VERSION@$DIGEST#" docker-compose.yml
+          grep -q "ghcr.io/torrent-tv/server:$VERSION@$DIGEST" docker-compose.yml
+          git commit -q -am "chore(deploy): run server $VERSION $TASK"
+          if git push -q origin HEAD:refs/heads/main; then
+            echo "pushed $(git rev-parse --short HEAD): run server $VERSION"
+            exit 0
+          fi
+          echo "infra's main moved (attempt $attempt); comparing again"
+        done
+        exit 1
+
+    - name: Wait until the site runs this version
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../scripts
+        VERSION: ${{ inputs.version }}
+        SITE: ${{ inputs.site }}
+        GH_TOKEN: ${{ inputs.github-token }}
+        MINUTES: ${{ inputs.timeout-minutes }}
+      run: |
+        dir="$RUNNER_TEMP/infra"
+        deadline=$(( $(date +%s) + MINUTES * 60 ))
+        while [ "$(date +%s)" -lt "$deadline" ]; do
+          live=$(curl -fsS -H "Cache-Control: no-cache" "$SITE/env.js?release=$(date +%s)" | sed -n 's/.*version: "\([^"]*\)".*/\1/p' || true)
+          if [ -n "$live" ] && node "$SCRIPTS/version-at-least.mjs" "$live" "$VERSION"; then
+            echo "the site runs server $live"
+            echo "### The site runs server $live" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # A failed infra run on the commit that installs this version is final.
+          git -C "$dir" fetch -q origin main
+          sha=$(git -C "$dir" log -1 --format=%H -S"server:$VERSION@" origin/main -- docker-compose.yml)
+          if [ -n "$sha" ]; then
+            conclusion=$(gh api "repos/torrent-tv/infra/actions/runs?head_sha=$sha&event=push" --jq '[.workflow_runs[] | select(.name == "Main")][0].conclusion // ""')
+            if [ "$conclusion" = failure ] || [ "$conclusion" = cancelled ]; then
+              echo "::error::the infra workflow on $sha ended $conclusion; see torrent-tv/infra Actions"
+              exit 1
+            fi
+          fi
+          echo "the site runs ${live:-nothing readable}; waiting for $VERSION"
+          sleep 15
+        done
+        echo "::error::the site did not run server $VERSION within $MINUTES minutes"
+        exit 1
