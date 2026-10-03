@@ -24,7 +24,7 @@ inputs:
     description: The meta issue the commit refers to, as `#ttv-<number>`.
     required: true
   timeout-minutes:
-    description: How long to wait for the add-on release.
+    description: How long to wait for npm to serve the release, and then for the add-on release.
     default: "40"
 runs:
   using: composite
@@ -33,12 +33,17 @@ runs:
       shell: bash
       env:
         VERSION: ${{ inputs.proxy-version }}
+        MINUTES: ${{ inputs.timeout-minutes }}
       run: |
-        for attempt in $(seq 1 20); do
+        # npm accepts a publication before it serves it ("Your package is being
+        # processed and may take a few minutes"); 2.89.8 took 6.5 minutes.
+        deadline=$(( $(date +%s) + MINUTES * 60 ))
+        while [ "$(date +%s)" -lt "$deadline" ]; do
           if [ "$(npm view "@torrent-tv/proxy@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then exit 0; fi
-          echo "npm does not serve @torrent-tv/proxy@$VERSION yet (attempt $attempt)"
+          echo "npm does not serve @torrent-tv/proxy@$VERSION yet"
           sleep 15
         done
+        echo "::error::npm did not serve @torrent-tv/proxy@$VERSION within $MINUTES minutes"
         exit 1
 
     - name: Point the add-on at the release
