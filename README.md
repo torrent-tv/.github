@@ -32,6 +32,7 @@ npmjs.com (package Settings → Trusted Publisher: `torrent-tv/proxy`, `main.yml
 environment `production`); no npm token is stored. The server image is
 published to GHCR with the workflow's own `GITHUB_TOKEN`. How a release reaches
 its users is described in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 An advisory that npm audit reports but that does not apply is listed in the
 repository's `audit-exceptions.json` with the reason, after the code path has
 been read; every other advisory at moderate or above fails the daily job.
