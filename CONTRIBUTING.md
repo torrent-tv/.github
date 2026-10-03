@@ -3,20 +3,51 @@
 These rules apply to every repository of the `torrent-tv` organization unless a
 repository states otherwise.
 
-## Commits
+## Tasks
 
-Every commit header follows [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/):
+All planning and tracking happen on GitHub: every task is an issue in
+[`torrent-tv/meta`](https://github.com/torrent-tv/meta/issues), and the
+organization project [Torrent TV](https://github.com/orgs/torrent-tv/projects)
+is the board that orders and tracks them. Work spanning several repositories is
+still one issue in `meta`. There is no other list of planned work.
+
+Start work only from an issue. Its number, written `ttv-<number>`, names the
+branch and every commit of that work; each repository links `ttv-<number>` to
+the issue.
+
+## Branches
+
+Every working branch is created from `main` for one task and named
 
 ```
-<type>(<scope>)!: <subject>
+<type>/ttv-<issue>-<description>
+```
+
+- `type` is a commit type from the list below.
+- `issue` is the issue number in `torrent-tv/meta`.
+- `description` is lower case: `a-z`, `0-9`, `.` and `-`.
+
+Example: `fix/ttv-12-keep-subtitle-track`. CI rejects a pull request from a
+branch that does not conform.
+
+## Commits
+
+Every commit header follows [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
+and ends with the task it belongs to:
+
+```
+<type>(<scope>)!: <subject> #ttv-<issue>
 ```
 
 - `type` is one of `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`,
   `ci`, `chore`, `style`, `revert`.
 - `scope` is optional and names the part that changed: `fix(subtitles): …`.
 - `!` or a `BREAKING CHANGE:` footer marks a breaking change.
-- Reference the task in the footer: `Refs torrent-tv/meta#12` or
-  `Closes torrent-tv/server#3`.
+- `#ttv-<issue>` is the issue number in `torrent-tv/meta`:
+  `fix(subtitles): keep the chosen track across episodes #ttv-12`.
+
+Commits made by the organization's own workflows (releases, dependency updates,
+installing a proxy release into the add-on) carry no task reference.
 
 CI rejects a pushed commit whose header does not conform. To check before
 committing, enable the repository's hook once per clone:
@@ -56,13 +87,6 @@ explicit `patch` or `minor` step.
 
 There is one environment, `production`. Release jobs run in it, and the secrets
 they need are stored on it.
-
-## Tasks
-
-Work is tracked as issues in the organization project
-[Torrent TV](https://github.com/orgs/torrent-tv/projects). Open an issue in the
-repository the work belongs to (or in `meta` when it spans several), and link
-commits to it in the footer.
 
 ## Dependencies
 

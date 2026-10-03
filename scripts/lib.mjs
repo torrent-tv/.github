@@ -13,6 +13,28 @@ export function parseHeader(header) {
   return { type: match.groups.type, scope: match.groups.scope ?? null, breaking: Boolean(match.groups.breaking) };
 }
 
+/**
+ * Every task is an issue of torrent-tv/meta. A commit header ends with
+ * ` #ttv-<issue number>`; each repository autolinks `ttv-<number>` to that issue.
+ */
+const TASK = /\s#ttv-(?<number>[1-9][0-9]*)$/;
+
+/** The meta issue number a header refers to, or null when it names none. */
+export function taskOf(header) {
+  const match = TASK.exec(header);
+  return match ? Number(match.groups.number) : null;
+}
+
+/** The identity of commits made by our own workflows, which carry no task. */
+export const BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com";
+
+const BRANCH = new RegExp(`^(?:${TYPES.join("|")})/ttv-[1-9][0-9]*-[a-z0-9][a-z0-9.-]*$`);
+
+/** A working branch is `<type>/ttv-<issue number>-<description>`. */
+export function isTaskBranch(name) {
+  return BRANCH.test(name);
+}
+
 /** A commit made by the release job itself never starts another release. */
 export function isReleaseCommit(header) {
   return /^chore\(release\): /.test(header);
@@ -61,16 +83,16 @@ export function lastTag() {
   }
 }
 
-/** Full messages of the non-merge commits in a range, oldest first. */
+/** Full messages and author emails of the non-merge commits in a range, oldest first. */
 export function messagesIn(range) {
-  const raw = git("log", "--no-merges", "--reverse", "--format=%H%x1f%B%x1e", range);
+  const raw = git("log", "--no-merges", "--reverse", "--format=%H%x1f%ae%x1f%B%x1e", range);
   return raw
     .split("\x1e")
     .map((entry) => entry.trim())
     .filter(Boolean)
     .map((entry) => {
-      const [sha, message] = entry.split("\x1f");
-      return { sha, message: message.trim() };
+      const [sha, email, message] = entry.split("\x1f");
+      return { sha, email, message: message.trim() };
     });
 }
 

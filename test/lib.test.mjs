@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { bumpOf, nextVersion, parseHeader, readChangelog, readVersion, writeChangelog, writeVersion } from "../scripts/lib.mjs";
+import { bumpOf, isTaskBranch, nextVersion, parseHeader, readChangelog, readVersion, taskOf, writeChangelog, writeVersion } from "../scripts/lib.mjs";
 
 test("headers follow Conventional Commits", () => {
   assert.deepEqual(parseHeader("fix(proxy): close the run"), { type: "fix", scope: "proxy", breaking: false });
@@ -11,6 +11,26 @@ test("headers follow Conventional Commits", () => {
   assert.equal(parseHeader("Fix the run"), null);
   assert.equal(parseHeader("wip: something"), null);
   assert.equal(parseHeader("fix:no space"), null);
+});
+
+test("a header ends with the task it belongs to", () => {
+  assert.equal(taskOf("fix(subtitles): keep the track #ttv-12"), 12);
+  assert.equal(parseHeader("fix(subtitles): keep the track #ttv-12")?.type, "fix");
+  assert.equal(taskOf("fix(subtitles): keep the track"), null);
+  assert.equal(taskOf("fix: see #ttv-12 for the cause"), null);
+  assert.equal(taskOf("fix: keep the track #12"), null);
+  assert.equal(taskOf("fix: keep the track#ttv-12"), null);
+  assert.equal(taskOf("fix: keep the track #ttv-0"), null);
+});
+
+test("a working branch names its type and task", () => {
+  assert.equal(isTaskBranch("fix/ttv-12-keep-subtitle-track"), true);
+  assert.equal(isTaskBranch("feat/ttv-7-hls.v2"), true);
+  assert.equal(isTaskBranch("fix/ttv-12"), false);
+  assert.equal(isTaskBranch("feature/ttv-12-menu"), false);
+  assert.equal(isTaskBranch("fix/12-keep"), false);
+  assert.equal(isTaskBranch("fix/ttv-12-Keep"), false);
+  assert.equal(isTaskBranch("claude/roadmap-github-project"), false);
 });
 
 test("the release step follows the strongest commit", () => {
