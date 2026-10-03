@@ -10,7 +10,8 @@ organization's default contribution files.
 | `actions/release-finish` | Push the tag and the release commit after publishing; create the GitHub release |
 | `actions/addon-install-proxy` | After a proxy release, set the add-on's `PROXY_VERSION`, add the changelog entry and push to the add-on |
 | `actions/update-dependencies` | Daily update within ranges, non-breaking audit fixes, tests, push to `main` |
-| `scripts/` | The Node scripts these actions run, with tests in `test/` |
+| `scripts/` | The Node scripts these actions run, with tests in `test/`; `check-audit.mjs` fails on an advisory not reviewed in `audit-exceptions.json` |
+| `scripts/setup-ci-access.sh` | One-time grant of the access CI cannot grant itself (deploy keys, droplet key, npm trusted publishing, the organization project) |
 | `githooks/commit-msg` | Local commit-message check, copied into each repository as `.githooks/commit-msg` |
 | `CONTRIBUTING.md`, `.github/ISSUE_TEMPLATE`, `.github/pull_request_template.md` | Organization defaults |
 
