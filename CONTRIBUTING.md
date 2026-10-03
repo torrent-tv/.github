@@ -7,7 +7,7 @@ repository states otherwise.
 
 All planning and tracking happen on GitHub: every task is an issue in
 [`torrent-tv/meta`](https://github.com/torrent-tv/meta/issues), and the
-organization project [Torrent TV](https://github.com/orgs/torrent-tv/projects)
+organization project [Torrent TV](https://github.com/orgs/torrent-tv/projects/1)
 is the board that orders and tracks them. Work spanning several repositories is
 still one issue in `meta`. There is no other list of planned work.
 
