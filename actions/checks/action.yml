@@ -71,7 +71,9 @@ runs:
       run: |
         if compgen -G ".github/workflows/*.y*ml" >/dev/null; then
           bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
-          ./actionlint -color
+          # actionlint 1.7.12 predates the documented `queue` key of `concurrency`
+          # (queue: max keeps every pending run); drop this once actionlint knows it.
+          ./actionlint -color -ignore 'unexpected key "queue" for "concurrency" section'
           rm -f actionlint
         fi
 

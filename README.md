@@ -21,7 +21,7 @@ The release rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 | Name | Kind | Where | Used for |
 |---|---|---|---|
-| `RELEASE_APP_CLIENT_ID` | variable, environment `production` | `proxy`, `server` | The `torrent-tv-release` GitHub App, installed only on `ha-addon` and `infra` (contents write, actions read). Each job asks for a token limited to one repository: `proxy` → `ha-addon`, `server` → `infra`. A push made with it starts the target's workflow, which a push with `GITHUB_TOKEN` would not |
+| `RELEASE_APP_ID` (5178045) | variable, environment `production` | `proxy`, `server` | The `torrent-tv-release` GitHub App, installed only on `ha-addon` and `infra` (contents write, actions read). Each job asks for a token limited to one repository: `proxy` → `ha-addon`, `server` → `infra`. A push made with it starts the target's workflow, which a push with `GITHUB_TOKEN` would not |
 | `RELEASE_APP_PRIVATE_KEY` | secret, environment `production` | `proxy`, `server` | The private key of that app |
 | `NPM_TOKEN` | secret, environment `production`, optional | `proxy` | Only until npm trusted publishing is enabled for `@torrent-tv/proxy`; afterwards publication uses OIDC and the secret is deleted |
 
