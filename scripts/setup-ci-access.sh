@@ -17,7 +17,8 @@
 set -euo pipefail
 
 ORG=torrent-tv
-DROPLET=${DROPLET:-root@206.189.97.152}
+# The droplet as ssh knows it: the "do" alias carries the user, address and key.
+DROPLET=${DROPLET:-do}
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
@@ -27,6 +28,10 @@ gh auth refresh -h github.com -s project,admin:org
 echo "== 2. add-on deploy key"
 gh api -X PATCH "orgs/$ORG" -F deploy_keys_enabled_for_repositories=true --silent
 ssh-keygen -q -t ed25519 -N "" -C "ci: proxy release installs into the add-on" -f "$work/addon"
+# A re-run replaces the key instead of adding a second one.
+for id in $(gh api "repos/$ORG/ha-addon/keys" --jq '.[] | select(.title == "CI: proxy release installs into the add-on") | .id'); do
+  gh api -X DELETE "repos/$ORG/ha-addon/keys/$id" --silent
+done
 gh api "repos/$ORG/ha-addon/keys" -f title="CI: proxy release installs into the add-on" \
   -f key="$(cat "$work/addon.pub")" -F read_only=false --silent
 gh secret set ADDON_DEPLOY_KEY -R "$ORG/proxy" --env production < "$work/addon"
@@ -34,8 +39,9 @@ gh secret set ADDON_DEPLOY_KEY -R "$ORG/proxy" --env production < "$work/addon"
 echo "== 3. droplet deploy key"
 ssh-keygen -q -t ed25519 -N "" -C "ci deploy (torrent-tv/infra)" -f "$work/droplet"
 line="restrict,command=\"cd /websites/infra && git pull --ff-only -q && ./prod.sh\" $(cat "$work/droplet.pub")"
-ssh "$DROPLET" "printf '%s\n' '$line' >> ~/.ssh/authorized_keys"
-host=${DROPLET#*@}
+# A re-run replaces the key instead of adding a second one.
+ssh "$DROPLET" "sed -i '/ci deploy (torrent-tv\/infra)\$/d' ~/.ssh/authorized_keys && printf '%s\n' '$line' >> ~/.ssh/authorized_keys"
+host=$(ssh -G "$DROPLET" | awk '/^hostname /{print $2}')
 ssh-keyscan -t ed25519,ecdsa,rsa "$host" 2>/dev/null > "$work/known_hosts"
 gh secret set DROPLET_SSH_KEY -R "$ORG/infra" --env production < "$work/droplet"
 gh secret set DROPLET_KNOWN_HOSTS -R "$ORG/infra" --env production < "$work/known_hosts"
