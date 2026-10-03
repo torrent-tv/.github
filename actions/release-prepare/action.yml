@@ -18,6 +18,9 @@ outputs:
   released:
     description: "'true' when a release was prepared."
     value: ${{ steps.plan.outputs.bump != 'none' }}
+  bump:
+    description: none, patch or minor.
+    value: ${{ steps.plan.outputs.bump }}
   version:
     value: ${{ steps.plan.outputs.version }}
   tag:
