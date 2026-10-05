@@ -2,8 +2,9 @@ name: Install a server release on the droplet
 description: >-
   After a server release, writes the published image (version and digest) into
   torrent-tv/infra's docker-compose.yml and verifies the result. With two server slots
-  it is written into the slot that names the older version, which is not
-  serving; the new instance then takes over from the serving one. The push is made
+  it is written into the slot that is not serving, as the site's /healthz says
+  (else the one that names the older version); the new instance then takes
+  over from the serving one. The push is made
   with a token of the torrent-tv-release app limited to infra; it starts infra's
   workflow, which checks the commit and has doco-cd apply it. A version is never
   lowered, and a version already written is not written again; in every case the
@@ -36,8 +37,19 @@ runs:
         DIGEST: ${{ inputs.digest }}
         TASK: ${{ inputs.task }}
         TOKEN: ${{ inputs.github-token }}
+        SITE: ${{ inputs.site }}
       run: |
         [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::'$DIGEST' is not an image digest"; exit 1; }
+        # Which slot serves, asked of the site: /healthz names the slot and its
+        # state, and nginx takes the two slots in turn, so of two requests one
+        # reaches the serving slot; four allow for a request another client
+        # made in between. Unknown when nothing answers "serving".
+        serving=""
+        for i in 1 2 3 4; do
+          serving=$(curl -fsS -H "Cache-Control: no-cache" "$SITE/healthz?slot=$i" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const x=JSON.parse(s).instance;if(x&&x.state==='serving')process.stdout.write(String(x.slot))}catch{}})" || true)
+          if [ -n "$serving" ]; then break; fi
+        done
+        echo "the site says slot '${serving:-unknown}' serves"
         dir="$RUNNER_TEMP/infra"
         rm -rf "$dir"
         git clone -q "https://x-access-token:$TOKEN@github.com/torrent-tv/infra.git" "$dir"
@@ -47,11 +59,11 @@ runs:
         for attempt in 1 2 3; do
           git fetch -q origin main
           git reset -q --hard origin/main
-          # With two server slots the image goes into the one with the older
-          # version, which is not serving; the new instance then takes over
-          # (server-image.mjs). Exit 2: this version or a later one is written.
+          # With two server slots the image goes into the one that is not
+          # serving; the new instance then takes over (server-image.mjs).
+          # Exit 2: this version or a later one is written.
           status=0
-          node "$SCRIPTS/server-image.mjs" docker-compose.yml "$VERSION" "$DIGEST" || status=$?
+          node "$SCRIPTS/server-image.mjs" docker-compose.yml "$VERSION" "$DIGEST" "$serving" || status=$?
           if [ "$status" -eq 2 ]; then exit 0; fi
           if [ "$status" -ne 0 ]; then exit "$status"; fi
           grep -q "ghcr.io/torrent-tv/server:$VERSION@$DIGEST" docker-compose.yml

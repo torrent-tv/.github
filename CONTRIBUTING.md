@@ -120,8 +120,8 @@ release job's own is refused by name and has to be merged by hand.
 1. `server` builds and pushes `ghcr.io/torrent-tv/server:<version>`.
 2. It writes `server:<version>@<digest>` into `infra`'s `docker-compose.yml` with
    the `torrent-tv-release` app. A version is never lowered. The server runs in
-   two slots, and the image goes into the slot that names the older version,
-   which is not serving (`scripts/server-image.mjs`).
+   two slots, and the image goes into the slot the site says is not serving
+   (`/healthz`), or else the one that names the older version (`scripts/server-image.mjs`).
 3. That push starts `infra`'s workflow. Its checks run, then its serial deploy job
    moves the `production` branch to the commit and sends a signed webhook to
    doco-cd on the droplet. doco-cd pulls the image, recreates that slot and
