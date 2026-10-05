@@ -107,7 +107,11 @@ export function messagesIn(range) {
 }
 
 export function readVersion(file) {
-  const text = readFileSync(file, "utf8");
+  return versionIn(readFileSync(file, "utf8"), file);
+}
+
+/** The version a version file's text states; the file name says how it is written. */
+export function versionIn(text, file) {
   if (file.endsWith(".json")) return JSON.parse(text).version;
   const match = /^version:\s*"?([0-9]+\.[0-9]+\.[0-9]+)"?\s*$/m.exec(text);
   if (!match) throw new Error(`${file} states no version`);
@@ -150,7 +154,11 @@ export function fail(message) {
 
 /** The changelog split into its leading text and its `## ` sections. */
 export function readChangelog(file) {
-  const lines = readFileSync(file, "utf8").replace(/\r\n/g, "\n").split("\n");
+  return parseChangelog(readFileSync(file, "utf8"));
+}
+
+export function parseChangelog(text) {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
   const sections = [];
   const head = [];
   for (const line of lines) {
@@ -169,4 +177,81 @@ export function writeChangelog(file, { head, sections }) {
 
 export function hasEntries(section) {
   return section.lines.some((line) => line.trim().startsWith("- "));
+}
+
+/** The entries of a section: each `- ` line with the lines that continue it. */
+export function entriesOf(section) {
+  const entries = [];
+  for (const line of section?.lines ?? []) {
+    if (line.startsWith("- ")) entries.push([line]);
+    else if (line.trim() && entries.length) entries.at(-1).push(line);
+  }
+  return entries.map((lines) => lines.join("\n"));
+}
+
+/**
+ * The changelog of a later commit of main once the release `version` is merged into it.
+ * The later commit's changelog is kept, except that the entries the release published
+ * leave "## Unreleased" for the "## <version>" section the release wrote. Entries are
+ * compared by their exact text, so a released entry that a later commit edited stays
+ * pending as a new one.
+ */
+export function combineChangelogs(development, release, version) {
+  const shipped = release.sections.find((section) => section.heading === version);
+  if (!shipped) throw new Error(`the release changelog has no "## ${version}" section`);
+  if (development.sections.some((section) => section.heading === version)) return development;
+  const [first, ...rest] = development.sections;
+  const unreleased = first?.heading === "Unreleased" ? first : null;
+  const published = new Set(entriesOf(shipped));
+  const pending = entriesOf(unreleased).filter((entry) => !published.has(entry));
+  const sections = [];
+  if (pending.length) sections.push({ heading: "Unreleased", lines: ["", ...pending.flatMap((entry) => entry.split("\n")), ""] });
+  const lines = [...shipped.lines];
+  if (lines.at(-1) !== "") lines.push("");
+  sections.push({ heading: version, lines }, ...(unreleased ? rest : development.sections));
+  return { head: development.head, sections };
+}
+
+/** Whether commit a is in the history of commit b. */
+export function isAncestor(a, b) {
+  try {
+    execFileSync("git", ["merge-base", "--is-ancestor", a, b]);
+    return true;
+  } catch (error) {
+    if (error.status === 1) return false;
+    throw error;
+  }
+}
+
+/**
+ * Merges the release commit `release` into the commit checked out: a later commit of main
+ * that was pushed before the release commit existed. A textual merge of the changelog puts
+ * the later commit's entries under the released heading (torrent-tv/meta#126), so the merge
+ * is built instead from the files of the commit checked out, the version of the release and
+ * the changelog combineChangelogs gives. That holds only while every commit the release
+ * brings is the release job's own: its release commit, which changes nothing but the
+ * changelog and the version files, and its merges. Anything else is refused by name.
+ * Returns the released version.
+ */
+export function mergeRelease({ release, changelog, versionFiles }) {
+  const version = versionIn(git("show", `${release}:${versionFiles[0]}`), versionFiles[0]);
+  const subject = git("log", "-1", "--format=%s", release);
+  if (subject !== `chore(release): ${version}`) throw new Error(`${release} is "${subject}", not the release commit of ${version}`);
+  const allowed = new Set([changelog, ...versionFiles]);
+  const foreign = git("diff", "--name-only", `${release}^`, release)
+    .split("\n")
+    .filter((file) => file && !allowed.has(file));
+  if (foreign.length) throw new Error(`the release commit of ${version} changes ${foreign.join(", ")} besides the changelog and the version files`);
+  for (const line of git("log", "--format=%h%x1f%ae%x1f%p%x1f%s", `HEAD..${release}`).split("\n").filter(Boolean)) {
+    const [sha, email, parents, header] = line.split("\x1f");
+    const own = email === BOT_EMAIL && (isReleaseCommit(header) || parents.includes(" "));
+    if (!own) throw new Error(`${sha} "${header}" is in ${version} and not in HEAD, and the release job did not make it; merge ${release} by hand`);
+  }
+  const released = parseChangelog(git("show", `${release}:${changelog}`));
+  git("merge", "--quiet", "--no-ff", "--no-commit", "-s", "ours", release);
+  for (const file of versionFiles) writeVersion(file, version);
+  writeChangelog(changelog, combineChangelogs(readChangelog(changelog), released, version));
+  git("add", changelog, ...versionFiles);
+  git("commit", "-q", "-m", `chore(release): merge ${version} into main`);
+  return version;
 }

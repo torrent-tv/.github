@@ -84,9 +84,19 @@ A release can also be started from the Actions tab (`workflow_dispatch`) with an
 explicit `patch` or `minor` step. It still needs an entry under `## Unreleased`.
 
 Every release job runs one at a time (a queue, never cancelled), and publication
-happens before anything is pushed. A failed release job can be re-run: once the
-`v<version>` tag exists on GitHub, publication is skipped and only the steps not
-yet done run.
+happens before anything is pushed. A failed release job can be re-run: once a
+`v<version>` tag holding the job's commit exists on GitHub, publication is
+skipped and only the steps not yet done run. A tag of the planned version that
+does not hold the commit fails the job.
+
+Each job checks out the commit of its own push. When that commit was pushed
+before the previous job's `chore(release)` commit reached `main`, the newest
+release is not in its history; the job merges that release in first and plans
+the version after it (torrent-tv/meta#126). The same merge is made when `main`
+moves while a job runs. It keeps `main`'s files, takes the version and the
+released changelog section from the release, and leaves the entries of later
+commits under `## Unreleased`; a release that brings any commit other than the
+release job's own is refused by name and has to be merged by hand.
 
 ## How a release reaches its users
 

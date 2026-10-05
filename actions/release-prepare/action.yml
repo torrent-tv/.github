@@ -3,7 +3,9 @@ description: >-
   Decides from the Conventional Commits since the last v* tag whether to release,
   and if so writes the version into the version files and the changelog, commits
   it as `chore(release): <version>` and tags it locally. Nothing is pushed: the
-  caller publishes first and then runs release-finish.
+  caller publishes first and then runs release-finish. A release made by an earlier
+  job from a commit pushed before this one is merged in first, so this job plans the
+  version after it rather than the one already published.
 inputs:
   version-files:
     description: Comma-separated files carrying the version; the first one is read.
@@ -23,20 +25,32 @@ outputs:
     value: ${{ steps.plan.outputs.bump }}
   already:
     description: >-
-      'true' when this version's tag already exists on the remote: a re-run of a release
-      that was published. Publication and pushes are then skipped, and the caller goes
-      on to verify the end result.
+      'true' when a release tag already holds the commit being released: a re-run of a
+      release that was published. Publication and pushes are then skipped, and the caller
+      goes on to verify the end result; version and tag name that release.
     value: ${{ steps.already.outputs.already }}
   version:
-    value: ${{ steps.plan.outputs.version }}
+    value: ${{ steps.already.outputs.version || steps.plan.outputs.version }}
   tag:
-    value: ${{ steps.plan.outputs.tag }}
+    value: ${{ steps.already.outputs.tag || steps.plan.outputs.tag }}
   notes-file:
     description: Release notes taken from the changelog.
     value: ${{ runner.temp }}/release-notes.md
 runs:
   using: composite
   steps:
+    - name: Bring in the releases made since this commit was pushed
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../scripts
+        FILES: ${{ inputs.version-files }}
+        CHANGELOG: ${{ inputs.changelog }}
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git fetch -q --tags origin
+        node "$SCRIPTS/release-catch-up.mjs" --changelog "$CHANGELOG" --version-files "$FILES"
+
     - name: Plan the release
       id: plan
       shell: bash
@@ -52,15 +66,25 @@ runs:
       env:
         SCRIPTS: ${{ github.action_path }}/../../scripts
         TAG: ${{ steps.plan.outputs.tag }}
-        VERSION: ${{ steps.plan.outputs.version }}
         CHANGELOG: ${{ inputs.changelog }}
+      # Only a tag that holds this commit means it was published. A tag of the planned
+      # version that does not hold it was made from another commit, and reporting success
+      # would leave this commit published by no job (torrent-tv/meta#126).
       run: |
-        if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
-          echo "already=true" >> "$GITHUB_OUTPUT"
-          git fetch -q origin "refs/tags/$TAG:refs/tags/$TAG"
-          git show "$TAG:$CHANGELOG" > "$RUNNER_TEMP/released-changelog.md"
-          node "$SCRIPTS/changelog-section.mjs" --changelog "$RUNNER_TEMP/released-changelog.md" --heading "$VERSION" > "$RUNNER_TEMP/release-notes.md"
-          echo "::notice::$TAG is already released; publication is skipped and the result is verified"
+        head=$(git rev-parse --short HEAD)
+        released=$(git tag --contains HEAD --list 'v[0-9]*' --sort=v:refname | head -n 1)
+        if [ -n "$released" ]; then
+          {
+            echo "already=true"
+            echo "tag=$released"
+            echo "version=${released#v}"
+          } >> "$GITHUB_OUTPUT"
+          git show "$released:$CHANGELOG" > "$RUNNER_TEMP/released-changelog.md"
+          node "$SCRIPTS/changelog-section.mjs" --changelog "$RUNNER_TEMP/released-changelog.md" --heading "${released#v}" > "$RUNNER_TEMP/release-notes.md"
+          echo "::notice::$released already holds $head; publication is skipped and the result is verified"
+        elif git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+          echo "::error::$TAG exists and does not hold $head: it was released from another commit, and this job would publish nothing"
+          exit 1
         else
           echo "already=false" >> "$GITHUB_OUTPUT"
         fi
@@ -77,8 +101,6 @@ runs:
       run: |
         node "$SCRIPTS/apply-release.mjs" --version "$VERSION" --changelog "$CHANGELOG" --version-files "$FILES"
         node "$SCRIPTS/changelog-section.mjs" --changelog "$CHANGELOG" --heading "$VERSION" > "$RUNNER_TEMP/release-notes.md"
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
         IFS=, read -ra files <<< "$FILES"
         git add "$CHANGELOG" "${files[@]}"
         git commit -m "chore(release): $VERSION"

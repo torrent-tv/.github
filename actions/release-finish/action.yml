@@ -5,9 +5,17 @@ description: >-
   changes nothing.
   Runs after publishing, so a failed publication leaves nothing behind in git.
   When main moved while the job ran, the release commit is merged into it instead
-  of being rebased, so the tag stays on the commit that was published.
+  of being rebased, so the tag stays on the commit that was published. The merge keeps
+  main's files and takes the version and the released changelog section from the
+  release, so entries of commits pushed meanwhile stay under "## Unreleased".
 inputs:
   tag:
+    required: true
+  changelog:
+    description: The changelog the release wrote, as given to release-prepare.
+    required: true
+  version-files:
+    description: The version files, as given to release-prepare.
     required: true
   notes-file:
     required: true
@@ -19,7 +27,10 @@ runs:
     - name: Push the tag and the release commit
       shell: bash
       env:
+        SCRIPTS: ${{ github.action_path }}/../../scripts
         TAG: ${{ inputs.tag }}
+        CHANGELOG: ${{ inputs.changelog }}
+        FILES: ${{ inputs.version-files }}
       run: |
         if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
           echo "$TAG is already on the remote; nothing to push"
@@ -28,8 +39,10 @@ runs:
         git push origin "refs/tags/$TAG"
         for attempt in 1 2 3; do
           if git push origin HEAD:refs/heads/main; then exit 0; fi
-          echo "main moved during the release (attempt $attempt); merging it"
-          git pull --no-rebase --no-edit origin main
+          echo "main moved during the release (attempt $attempt); merging the release into it"
+          git fetch -q origin main
+          git checkout -q --detach FETCH_HEAD
+          node "$SCRIPTS/merge-release.mjs" --release "refs/tags/$TAG" --changelog "$CHANGELOG" --version-files "$FILES"
         done
         exit 1
 
