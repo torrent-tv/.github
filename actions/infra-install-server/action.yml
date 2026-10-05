@@ -1,7 +1,9 @@
 name: Install a server release on the droplet
 description: >-
   After a server release, writes the published image (version and digest) into
-  torrent-tv/infra's docker-compose.yml and verifies the result. The push is made
+  torrent-tv/infra's docker-compose.yml and verifies the result. With two server slots
+  it is written into the slot that names the older version, which is not
+  serving; the new instance then takes over from the serving one. The push is made
   with a token of the torrent-tv-release app limited to infra; it starts infra's
   workflow, which checks the commit and has doco-cd apply it. A version is never
   lowered, and a version already written is not written again; in every case the
@@ -45,13 +47,13 @@ runs:
         for attempt in 1 2 3; do
           git fetch -q origin main
           git reset -q --hard origin/main
-          current=$(sed -nE 's#^\s+image:\s+ghcr\.io/torrent-tv/server:([0-9.]+)@sha256:[0-9a-f]+\s*$#\1#p' docker-compose.yml)
-          if [ -z "$current" ]; then echo "::error::infra's docker-compose.yml names no pinned server image"; exit 1; fi
-          if node "$SCRIPTS/version-at-least.mjs" "$current" "$VERSION"; then
-            echo "infra already runs server $current (asked: $VERSION); nothing to write"
-            exit 0
-          fi
-          sed -i -E "s#(^\s+image:\s+ghcr\.io/torrent-tv/server:)[0-9.]+@sha256:[0-9a-f]+#\1$VERSION@$DIGEST#" docker-compose.yml
+          # With two server slots the image goes into the one with the older
+          # version, which is not serving; the new instance then takes over
+          # (server-image.mjs). Exit 2: this version or a later one is written.
+          status=0
+          node "$SCRIPTS/server-image.mjs" docker-compose.yml "$VERSION" "$DIGEST" || status=$?
+          if [ "$status" -eq 2 ]; then exit 0; fi
+          if [ "$status" -ne 0 ]; then exit "$status"; fi
           grep -q "ghcr.io/torrent-tv/server:$VERSION@$DIGEST" docker-compose.yml
           git commit -q -am "chore(deploy): run server $VERSION $TASK"
           if git push -q origin HEAD:refs/heads/main; then
