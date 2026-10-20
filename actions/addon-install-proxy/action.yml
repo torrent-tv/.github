@@ -34,16 +34,17 @@ runs:
       env:
         VERSION: ${{ inputs.proxy-version }}
         MINUTES: ${{ inputs.timeout-minutes }}
+        SCRIPTS: ${{ github.action_path }}/../../scripts
       run: |
         # npm accepts a publication before it serves it ("Your package is being
         # processed and may take a few minutes"); 2.89.8 took 6.5 minutes.
         deadline=$(( $(date +%s) + MINUTES * 60 ))
         while [ "$(date +%s)" -lt "$deadline" ]; do
-          if [ "$(npm view "@torrent-tv/proxy@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then exit 0; fi
-          echo "npm does not serve @torrent-tv/proxy@$VERSION yet"
+          if node "$SCRIPTS/npm-package-ready.mjs" "@torrent-tv/proxy@$VERSION"; then exit 0; fi
+          echo "npm does not serve the @torrent-tv/proxy@$VERSION tarball yet"
           sleep 15
         done
-        echo "::error::npm did not serve @torrent-tv/proxy@$VERSION within $MINUTES minutes"
+        echo "::error::npm did not serve the @torrent-tv/proxy@$VERSION tarball within $MINUTES minutes"
         exit 1
 
     - name: Point the add-on at the release
