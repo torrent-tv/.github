@@ -1,0 +1,21 @@
+name: Workflows are valid
+description: The repository's workflows pass actionlint.
+runs:
+  using: composite
+  steps:
+    - name: Workflows are valid
+      shell: bash
+      run: |
+        if compgen -G ".github/workflows/*.y*ml" >/dev/null; then
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          # actionlint 1.7.12 predates three documented things; drop each ignore once
+          # actionlint knows it: the `queue` key of `concurrency` (queue: max keeps
+          # every pending run), the `ubuntu-26.04` runner label, and the `client-id`
+          # input of actions/create-github-app-token, which replaces `app-id`.
+          ./actionlint -color \
+            -ignore 'unexpected key "queue" for "concurrency" section' \
+            -ignore 'label "ubuntu-26\.04" is unknown' \
+            -ignore 'input "client-id" is not defined in action "actions/create-github-app-token@' \
+            -ignore 'missing input "app-id" which is required by action "actions/create-github-app-token@'
+          rm -f actionlint
+        fi

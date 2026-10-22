@@ -12,7 +12,8 @@ permissions:
 jobs:
   checks:
     name: Checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
+    # One step per check, so the run shows which check ran and which one failed.
     steps:
       - uses: actions/checkout@v7
         with:
@@ -20,7 +21,15 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - uses: ./actions/checks
-        with:
-          node: "false"
-          extra-check: node --test test/*.test.mjs && sh -n githooks/commit-msg
+      - name: Commit messages follow Conventional Commits
+        uses: ./actions/check-commits
+      - name: Branch name names a task
+        uses: ./actions/check-branch
+      - name: Shell scripts and Dockerfiles use LF
+        uses: ./actions/check-line-endings
+      - name: Workflows are valid
+        uses: ./actions/check-workflows
+      - name: Script tests
+        run: node --test test/*.test.mjs
+      - name: Commit hook syntax
+        run: sh -n githooks/commit-msg

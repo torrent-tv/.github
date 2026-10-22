@@ -5,7 +5,8 @@ organization's default contribution files.
 
 | Path | Purpose |
 |---|---|
-| `actions/checks` | Commit headers with a task reference, the branch name, line endings, workflow syntax, the pending changelog entry, install, lint and tests |
+| `actions/check-commits`, `actions/check-branch`, `actions/check-line-endings`, `actions/check-workflows`, `actions/check-changelog` | One check each: commit headers with a task reference, the branch name, line endings, workflow syntax, the pending changelog entry. A repository's Checks job calls them as separate named steps, then installs, lints and tests in its own steps, so the run shows which check failed |
+| `actions/checks` | All of the checks above plus install, lint and tests in one step; kept for `infra` until it moves to the separate steps |
 | `actions/release-prepare` | Decide the release from Conventional Commits; write the version and the changelog heading; commit and tag locally |
 | `actions/release-finish` | Push the tag and the release commit after publishing; create the GitHub release |
 | `actions/addon-install-proxy` | After a proxy release, set the add-on's `PROXY_VERSION`, add the changelog entry and push to the add-on |
@@ -22,7 +23,7 @@ The release rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 | Name | Kind | Where | Used for |
 |---|---|---|---|
-| `RELEASE_APP_ID` (5178045) | variable, environment `production` | `proxy`, `server` | The `torrent-tv-release` GitHub App, installed only on `ha-addon` and `infra` (contents write, actions read). Each job asks for a token limited to one repository: `proxy` → `ha-addon`, `server` → `infra`. A push made with it starts the target's workflow, which a push with `GITHUB_TOKEN` would not |
+| `RELEASE_APP_CLIENT_ID` (Iv23liMI95XScILzulVS) | variable, environment `production` | `proxy`, `server` | The Client ID of the `torrent-tv-release` GitHub App (App ID 5178045), passed as `client-id` to `actions/create-github-app-token`; its `app-id` input is deprecated. The app is installed only on `ha-addon` and `infra` (contents write, actions read). Each job asks for a token limited to one repository: `proxy` → `ha-addon`, `server` → `infra`. A push made with it starts the target's workflow, which a push with `GITHUB_TOKEN` would not |
 | `RELEASE_APP_PRIVATE_KEY` | secret, environment `production` | `proxy`, `server` | The private key of that app |
 | `DEPLOY_URL` | variable, environment `production` | `infra` | The doco-cd base URL behind nginx; the deploy job runs only when it is set |
 | `DEPLOY_WEBHOOK_SECRET`, `DEPLOY_API_SECRET` | secrets, environment `production` | `infra` | Sign the webhook to doco-cd and read the state of its run |

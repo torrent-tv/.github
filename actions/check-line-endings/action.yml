@@ -1,0 +1,8 @@
+name: Shell scripts and Dockerfiles use LF
+description: Shell scripts and Dockerfiles in the repository end their lines with LF.
+runs:
+  using: composite
+  steps:
+    - name: Shell scripts and Dockerfiles use LF
+      shell: bash
+      run: node "${{ github.action_path }}/../../scripts/check-line-endings.mjs"

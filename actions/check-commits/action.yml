@@ -1,0 +1,28 @@
+name: Commit messages follow Conventional Commits
+description: >-
+  Every pushed commit header follows Conventional Commits and names its task
+  (`#ttv-<issue>`). A run that pushed no commits checks nothing.
+runs:
+  using: composite
+  steps:
+    - name: Commit messages follow Conventional Commits
+      shell: bash
+      env:
+        EVENT: ${{ github.event_name }}
+        BEFORE: ${{ github.event.before }}
+        BASE: ${{ github.event.pull_request.base.sha }}
+        HEAD: ${{ github.event.pull_request.head.sha }}
+        SHA: ${{ github.sha }}
+        SCRIPTS: ${{ github.action_path }}/../../scripts
+      run: |
+        case "$EVENT" in
+          pull_request) range="$BASE..$HEAD" ;;
+          push)
+            if [[ "$BEFORE" =~ ^0+$ ]] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              if git rev-parse -q --verify "$SHA~1" >/dev/null; then range="$SHA~1..$SHA"; else range="$SHA"; fi
+            else
+              range="$BEFORE..$SHA"
+            fi ;;
+          *) echo "No pushed commits to check for a $EVENT event"; exit 0 ;;
+        esac
+        node "$SCRIPTS/check-commits.mjs" --range "$range"

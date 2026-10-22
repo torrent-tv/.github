@@ -1,0 +1,19 @@
+name: Pending changes have a changelog entry
+description: >-
+  A change that makes a release has its entry under "## Unreleased", and no version
+  heading is added by hand.
+inputs:
+  changelog:
+    description: Changelog path.
+    required: true
+  version-file:
+    description: File stating the released version (package.json or config.yaml).
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Pending changes have a changelog entry
+      shell: bash
+      run: >-
+        node "${{ github.action_path }}/../../scripts/check-changelog.mjs"
+        --changelog "${{ inputs.changelog }}" --version-file "${{ inputs.version-file }}"
