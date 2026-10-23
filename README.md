@@ -6,7 +6,6 @@ organization's default contribution files.
 | Path | Purpose |
 |---|---|
 | `actions/check-commits`, `actions/check-branch`, `actions/check-line-endings`, `actions/check-workflows`, `actions/check-changelog` | One check each: commit headers with a task reference, the branch name, line endings, workflow syntax, the pending changelog entry. A repository's Checks job calls them as separate named steps, then installs, lints and tests in its own steps, so the run shows which check failed |
-| `actions/checks` | All of the checks above plus install, lint and tests in one step; kept for `infra` until it moves to the separate steps |
 | `actions/release-prepare` | Decide the release from Conventional Commits; write the version and the changelog heading; commit and tag locally |
 | `actions/release-finish` | Push the tag and the release commit after publishing; create the GitHub release |
 | `actions/addon-install-proxy` | After a proxy release, set the add-on's `PROXY_VERSION`, add the changelog entry and push to the add-on |
